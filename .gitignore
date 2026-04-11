@@ -119,17 +119,18 @@ $RECYCLE.BIN/
 ~*
 
 # ============================================
-# Security & Credentials (Future Tiers)
+# Security & Credentials (Silver Tier+)
 # ============================================
 .env
 .env.local
 .env.*.local
-credentials.json
+credentials/
 tokens/
 sessions/
 *.key
 *.pem
 secrets/
+*.pickle
 
 # ============================================
 # Node.js (if MCP servers added later)
