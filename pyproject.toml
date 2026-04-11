@@ -1,0 +1,12 @@
+[project]
+name = "ai-employee-vault"
+version = "0.1.0"
+description = "Bronze Tier AI Employee - File System Watcher"
+requires-python = ">=3.13"
+dependencies = [
+    "watchdog>=4.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
