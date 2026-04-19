@@ -41,19 +41,37 @@ class LinkedInPoster:
     def login_to_linkedin(self, page):
         """Navigate to LinkedIn and wait for login"""
         try:
-            page.goto('https://www.linkedin.com/feed/')
+            page.goto('https://www.linkedin.com/feed/', wait_until='domcontentloaded')
+            time.sleep(3)
 
-            # Check if already logged in
-            try:
-                page.wait_for_selector('[data-test-id="feed-tab"]', timeout=5000)
+            # Check if we're on the feed page (already logged in)
+            current_url = page.url
+            if '/feed/' in current_url:
                 logger.info('Already logged in to LinkedIn')
                 return True
-            except PlaywrightTimeout:
-                logger.info('Please log in to LinkedIn manually')
-                # Wait for user to log in
-                page.wait_for_selector('[data-test-id="feed-tab"]', timeout=120000)
-                logger.info('Login successful')
-                return True
+
+            # Not logged in - wait for user to login
+            logger.info('=' * 60)
+            logger.info('PLEASE LOG IN TO LINKEDIN IN THE BROWSER WINDOW')
+            logger.info('DO NOT CLOSE THE BROWSER!')
+            logger.info('After logging in, you will be redirected to the feed.')
+            logger.info('The script will automatically continue...')
+            logger.info('=' * 60)
+
+            # Wait for URL to contain /feed/ (indicates successful login)
+            max_wait = 300  # 5 minutes
+            start_time = time.time()
+
+            while time.time() - start_time < max_wait:
+                current_url = page.url
+                if '/feed/' in current_url:
+                    logger.info('Login successful! Session saved for future runs.')
+                    time.sleep(2)  # Give page time to fully load
+                    return True
+                time.sleep(2)
+
+            logger.error('Login timeout - please try again')
+            return False
 
         except Exception as e:
             logger.error(f'Error during LinkedIn login: {e}')
@@ -108,31 +126,138 @@ class LinkedInPoster:
     def create_linkedin_post(self, page, post_content: str):
         """Create a post on LinkedIn"""
         try:
-            # Click "Start a post" button
-            start_post_btn = page.query_selector('[data-test-id="share-box-open-btn"]')
-            if not start_post_btn:
-                start_post_btn = page.query_selector('button:has-text("Start a post")')
+            # Wait for page to fully load
+            time.sleep(5)
 
-            if start_post_btn:
-                start_post_btn.click()
-                time.sleep(2)
-            else:
-                logger.error('Could not find "Start a post" button')
+            # Try multiple selectors for "Start a post" button
+            start_post_selectors = [
+                'button:has-text("Start a post")',
+                'button:has-text("start a post")',
+                '.share-box-feed-entry__trigger',
+                'button.share-box-feed-entry__trigger',
+                '[data-test-id="share-box-open-btn"]',
+                '.artdeco-button.share-box-feed-entry__trigger',
+                'button[aria-label*="Start a post"]',
+                'button[aria-label*="start a post"]',
+                '.share-box-feed-entry',
+                'div.share-box-feed-entry__trigger',
+                'button.artdeco-button--tertiary',
+                'button >> text=/start a post/i'
+            ]
+
+            start_post_btn = None
+            for selector in start_post_selectors:
+                try:
+                    start_post_btn = page.wait_for_selector(selector, timeout=5000, state='visible')
+                    if start_post_btn and start_post_btn.is_visible():
+                        logger.info(f'Found start post button: {selector}')
+                        break
+                except PlaywrightTimeout:
+                    continue
+                except Exception as e:
+                    logger.debug(f'Selector {selector} failed: {e}')
+                    continue
+
+            if not start_post_btn:
+                logger.error('Could not find "Start a post" button with any selector')
+                # Take screenshot for debugging
+                page.screenshot(path='Logs/linkedin_error.png')
+                logger.info('Screenshot saved to Logs/linkedin_error.png')
+
+                # Try to log all buttons on the page for debugging
+                try:
+                    buttons = page.query_selector_all('button')
+                    logger.info(f'Found {len(buttons)} buttons on page')
+                    for i, btn in enumerate(buttons[:10]):  # Log first 10 buttons
+                        text = btn.inner_text()
+                        aria_label = btn.get_attribute('aria-label')
+                        logger.debug(f'Button {i}: text="{text}", aria-label="{aria_label}"')
+                except Exception as e:
+                    logger.debug(f'Could not enumerate buttons: {e}')
+
                 return False
 
-            # Wait for editor to appear
-            editor = page.wait_for_selector('.ql-editor', timeout=10000)
+            # Click the button
+            start_post_btn.click()
+            logger.info('Clicked "Start a post" button')
+            time.sleep(4)
+
+            # Wait for editor to appear - try multiple selectors
+            editor_selectors = [
+                'div[contenteditable="true"]',
+                '.ql-editor[contenteditable="true"]',
+                'div[role="textbox"][contenteditable="true"]',
+                '.ql-editor',
+                'div[role="textbox"]',
+                '[contenteditable="true"]',
+                '.share-creation-state__text-editor',
+                'div.ql-editor.ql-blank',
+                '[data-placeholder*="share"]',
+                'div[aria-label*="share"]',
+                'div.editor-content'
+            ]
+
+            editor = None
+            for selector in editor_selectors:
+                try:
+                    editor = page.wait_for_selector(selector, timeout=8000, state='visible')
+                    if editor and editor.is_visible():
+                        logger.info(f'Found editor: {selector}')
+                        break
+                except PlaywrightTimeout:
+                    continue
+                except Exception as e:
+                    logger.debug(f'Editor selector {selector} failed: {e}')
+                    continue
+
+            if not editor:
+                logger.error('Could not find post editor')
+                # Take screenshot for debugging
+                page.screenshot(path='Logs/linkedin_editor_error.png')
+                logger.info('Screenshot saved to Logs/linkedin_editor_error.png')
+
+                # Try to log contenteditable elements for debugging
+                try:
+                    editables = page.query_selector_all('[contenteditable="true"]')
+                    logger.info(f'Found {len(editables)} contenteditable elements')
+                    for i, elem in enumerate(editables[:5]):
+                        classes = elem.get_attribute('class')
+                        role = elem.get_attribute('role')
+                        logger.debug(f'Editable {i}: class="{classes}", role="{role}"')
+                except Exception as e:
+                    logger.debug(f'Could not enumerate editables: {e}')
+
+                return False
 
             # Type the post content
-            editor.fill(post_content)
+            editor.click()
             time.sleep(1)
+            editor.fill(post_content)
+            logger.info('Post content entered')
+            time.sleep(2)
 
-            # Click Post button
-            post_btn = page.query_selector('button:has-text("Post")')
+            # Click Post button - try multiple selectors
+            post_btn_selectors = [
+                'button.share-actions__primary-action',
+                'button[aria-label*="Post"]',
+                'button:has-text("Post")',
+                '.share-actions__primary-action'
+            ]
+
+            post_btn = None
+            for selector in post_btn_selectors:
+                try:
+                    post_btn = page.wait_for_selector(selector, timeout=3000)
+                    if post_btn and post_btn.is_enabled():
+                        logger.info(f'Found post button: {selector}')
+                        break
+                except PlaywrightTimeout:
+                    continue
+
             if post_btn:
                 post_btn.click()
                 logger.info('Post button clicked')
-                time.sleep(3)
+                time.sleep(5)
                 return True
             else:
                 logger.error('Could not find Post button')
