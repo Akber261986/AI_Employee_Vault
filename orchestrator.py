@@ -105,6 +105,7 @@ class Orchestrator:
         # Start continuous watchers
         watchers = [
             ('Gmail Watcher', 'gmail_watcher.py'),
+            ('WhatsApp Watcher', 'whatsapp_watcher.py'),
             ('File System Watcher', 'filesystem_watcher.py'),
         ]
 
